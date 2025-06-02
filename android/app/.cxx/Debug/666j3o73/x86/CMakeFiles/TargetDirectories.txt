@@ -1,0 +1,2 @@
+C:/Users/Administrator/Downloads/New folder (2)/example/android/app/.cxx/Debug/666j3o73/x86/CMakeFiles/edit_cache.dir
+C:/Users/Administrator/Downloads/New folder (2)/example/android/app/.cxx/Debug/666j3o73/x86/CMakeFiles/rebuild_cache.dir
