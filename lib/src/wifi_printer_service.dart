@@ -40,8 +40,8 @@ class WiFiPrintService {
   Future<bool> initialize() async {
     try {
       // Initialize printer controller
-      // printerController = PrinterController(printer: SunmiPrinterPlus());
-      await checkServerUrl();
+      printerController = PrinterController(printer: SunmiPrinterPlus());
+      // await checkServerUrl();
       await _generateDeviceId();
       await _registerDevice();
       _startHeartbeat();
