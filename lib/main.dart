@@ -9,6 +9,7 @@ import 'package:sunmi_printer_plus/core/helpers/sunmi_helper.dart';
 import 'package:sunmi_printer_plus/core/styles/sunmi_barcode_style.dart';
 import 'package:sunmi_printer_plus/core/styles/sunmi_qrcode_style.dart';
 import 'package:sunmi_printer_plus/core/styles/sunmi_text_style.dart';
+import 'package:sunmi_printer_plus/core/sunmi/sunmi_printer.dart';
 import 'package:sunmi_printer_plus/core/types/sunmi_column.dart';
 import 'package:sunmi_printer_plus/core/types/sunmi_text.dart';
 import 'package:sunmi_printer_plus/sunmi_printer_plus.dart';
@@ -16,6 +17,7 @@ import 'package:sunmi_printer_plus_example/src/cash_drawer.dart';
 import 'package:sunmi_printer_plus_example/src/lcd_controller.dart';
 import 'package:sunmi_printer_plus_example/src/printer_controller.dart';
 import 'package:sunmi_printer_plus_example/src/status_controller.dart';
+import 'package:sunmi_printer_plus_example/src/wifi_printer_service.dart';
 
 void main() {
   runApp(const AppWrapper());
@@ -37,7 +39,6 @@ class AppWrapper extends StatelessWidget {
   }
 }
 
-
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
@@ -51,14 +52,21 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
   String idPrinter = "";
   String paperPrinter = "";
   String typePrinter = "";
+  bool _wifiServiceRunning = false;
+  String _serverUrl = 'http://192.168.29.177:5050';
+  final WiFiPrintService _wifiService = WiFiPrintService();
   String cashDrawerStatus = "Close";
   bool isLoading = true;
   File? selectedImage;
+  final TextEditingController _textController = TextEditingController();
+  final TextEditingController _qrController = TextEditingController();
+  final TextEditingController _barcodeController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   late final PrinterController printerController;
   late final StatusController statusController;
   late final LcdController lcdController;
   late final CashDrawer cashDrawer;
+  final TextEditingController _serverUrlController = TextEditingController();
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
 
@@ -78,13 +86,15 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
     statusController = StatusController(printer: sunmiPrinterPlus);
     lcdController = LcdController(printer: sunmiPrinterPlus);
     cashDrawer = CashDrawer(printer: sunmiPrinterPlus);
-
+    _serverUrlController.text = _serverUrl;
     _initializePrinter();
   }
 
   @override
   void dispose() {
+    _wifiService.dispose();
     _pulseController.dispose();
+    _serverUrlController.dispose();
     super.dispose();
   }
 
@@ -110,6 +120,110 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
       setState(() {
         isLoading = false;
       });
+    }
+  }
+
+  void _updateServerUrl() {
+    setState(() {
+      _serverUrl = _serverUrlController.text;
+    });
+    _showSnackBar('Server URL updated', Colors.blue);
+  }
+
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<void> _stopWiFiService() async {
+    _wifiService.dispose();
+    setState(() {
+      _wifiServiceRunning = false;
+    });
+    _showSnackBar('WiFi service stopped', Colors.orange);
+  }
+
+  Future<void> _startWiFiService() async {
+    _wifiService.setServerUrl(_serverUrl);
+    final success = await _wifiService.initialize();
+
+    setState(() {
+      _wifiServiceRunning = success;
+    });
+
+    if (success) {
+      _showSnackBar('WiFi service started successfully', Colors.green);
+    } else {
+      _showSnackBar('Failed to start WiFi service', Colors.red);
+    }
+  }
+
+  Future<void> _printText() async {
+    if (_textController.text.isEmpty) {
+      _showSnackBar('Please enter text to print', Colors.orange);
+      return;
+    }
+
+    try {
+      await SunmiPrinter.printText(_textController.text);
+      await SunmiPrinter.lineWrap(2);
+      _showSnackBar('Text printed successfully', Colors.green);
+    } catch (e) {
+      _showSnackBar('Failed to print text: $e', Colors.red);
+    }
+  }
+
+  Future<void> _printQRCode() async {
+    if (_qrController.text.isEmpty) {
+      _showSnackBar('Please enter QR code data', Colors.orange);
+      return;
+    }
+
+    try {
+      await printerController.printQRCode(
+          _qrController.text,
+          style: SunmiQrcodeStyle(
+              qrcodeSize: 16,
+              align: SunmiPrintAlign.CENTER
+          )
+      );
+      await printerController.lineWrap(1);
+      await SunmiPrinter.lineWrap(2);
+      _showSnackBar('QR code printed successfully', Colors.green);
+    } catch (e) {
+      _showSnackBar('Failed to print QR code: $e', Colors.red);
+    }
+  }
+
+  Future<void> _printBarcode() async {
+    if (_barcodeController.text.isEmpty) {
+      _showSnackBar('Please enter barcode data', Colors.orange);
+      return;
+    }
+
+    try {
+      await printerController.printBarcode(text: _barcodeController.text,
+          style: SunmiBarcodeStyle(
+              height: 100, size: 2, textPos: SunmiBarcodeTextPos.TEXT_UNDER));
+      _showSnackBar('Barcode printed successfully', Colors.green);
+    } catch (e) {
+      _showSnackBar('Failed to print barcode: $e', Colors.red);
+    }
+  }
+
+  Future<void> _testServerConnection() async {
+    _wifiService.setServerUrl(_serverUrl);
+    final connected = await _wifiService.testConnection();
+
+    if (connected) {
+      _showSnackBar('Server connection successful', Colors.green);
+    } else {
+      _showSnackBar('Server connection failed', Colors.red);
     }
   }
 
@@ -352,22 +466,26 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
         body: isLoading
             ? _buildLoadingScreen()
             : SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _buildStatusCard(),
-              const SizedBox(height: 24),
-              _buildPrinterInfoCard(),
-              const SizedBox(height: 24),
-              _buildActionsSection(),
-              const SizedBox(height: 24),
-              _buildTextPrintingSection(),
-              const SizedBox(height: 24),
-              _buildImagePrintingSection(),
-            ],
-          ),
-        ),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildStatusCard(),
+                    const SizedBox(height: 24),
+                    _buildPrinterInfoCard(),
+                    const SizedBox(height: 24),
+                    _buildActionsSection(),
+                    const SizedBox(height: 24),
+                    _buildTextPrintingSection(),
+                    const SizedBox(height: 24),
+                    _buildImagePrintingSection(),
+                    const SizedBox(height: 24),
+                    _buildPrintingFromServerSection(),
+                    const SizedBox(height: 24),
+                    _buildPrintControls(),
+                  ],
+                ),
+              ),
       ),
     );
   }
@@ -465,7 +583,8 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
                   },
                   icon: const Icon(Icons.refresh),
                   style: IconButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                    backgroundColor:
+                        Theme.of(context).colorScheme.surfaceVariant,
                   ),
                 ),
               ],
@@ -806,7 +925,8 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
         fontSize: 30,
       ),
     );
-    await printerController.printQRCode('https://github.com/brasizza/sunmi_printer');
+    await printerController
+        .printQRCode('https://github.com/brasizza/sunmi_printer');
     await printerController.lineWrap(2);
   }
 
@@ -835,75 +955,81 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
                     color: Colors.grey[100],
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: Theme.of(context).colorScheme.outline.withOpacity(0.2),
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outline
+                          .withOpacity(0.2),
                     ),
                   ),
                   child: selectedImage != null
                       ? ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      selectedImage!,
-                      fit: BoxFit.contain,
-                    ),
-                  )
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.file(
+                            selectedImage!,
+                            fit: BoxFit.contain,
+                          ),
+                        )
                       : Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.image_outlined,
-                        size: 48,
-                        color: Colors.grey[400],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'No image selected',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                          fontSize: 16,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.image_outlined,
+                              size: 48,
+                              color: Colors.grey[400],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'No image selected',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Tap "Select Image" to choose a photo',
+                              style: TextStyle(
+                                color: Colors.grey[500],
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tap "Select Image" to choose a photo',
-                        style: TextStyle(
-                          color: Colors.grey[500],
-                          fontSize: 14,
-                        ),
-                      ),
-                    ],
-                  ),
                 ),
                 const SizedBox(height: 20),
                 // Action buttons
                 Row(
                   children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            _showImageSourceDialog(context);
-                          },
-                          icon: const Icon(Icons.add_photo_alternate),
-                          label: const Text('Select Image'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(context).colorScheme.surface,
-                            foregroundColor: Theme.of(context).colorScheme.onSurface,
-                            elevation: 1,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                          ),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          _showImageSourceDialog(context);
+                        },
+                        icon: const Icon(Icons.add_photo_alternate),
+                        label: const Text('Select Image'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              Theme.of(context).colorScheme.surface,
+                          foregroundColor:
+                              Theme.of(context).colorScheme.onSurface,
+                          elevation: 1,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
                       ),
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton.icon(
-                        onPressed:(){
-                          if(  selectedImage != null) {
+                        onPressed: () {
+                          if (selectedImage != null) {
                             _printSelectedImage();
-                        }
+                          }
                         },
                         icon: const Icon(Icons.print),
                         label: const Text('Print Image'),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.primary,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.primary,
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 16),
                         ),
@@ -917,9 +1043,13 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
                   onPressed: () async {
-                    String url = 'https://avatars.githubusercontent.com/u/14101776?s=100';
+                    String url =
+                        'https://avatars.githubusercontent.com/u/14101776?s=100';
                     try {
-                      Uint8List assetImage = (await NetworkAssetBundle(Uri.parse(url)).load(url)).buffer.asUint8List();
+                      Uint8List assetImage =
+                          (await NetworkAssetBundle(Uri.parse(url)).load(url))
+                              .buffer
+                              .asUint8List();
                       await printerController.printImage(
                         image: assetImage,
                         align: SunmiPrintAlign.CENTER,
@@ -967,6 +1097,136 @@ class _MyAppState extends State<MyApp> with TickerProviderStateMixin {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildPrintingFromServerSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'WiFi Print Server',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: _serverUrlController,
+                      decoration: InputDecoration(
+                        labelText: 'Server URL',
+                        hintText: 'http://192.168.29.177:5050',
+                        border: OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: Icon(Icons.save),
+                          onPressed: _updateServerUrl,
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _wifiServiceRunning
+                                ? _stopWiFiService
+                                : _startWiFiService,
+                            icon: Icon(_wifiServiceRunning
+                                ? Icons.stop
+                                : Icons.play_arrow),
+                            label: Text(_wifiServiceRunning
+                                ? 'Stop Service'
+                                : 'Start Service'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _wifiServiceRunning
+                                  ? Colors.red
+                                  : Colors.green,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ),
+                        // SizedBox(width: 8),
+                        // ElevatedButton.icon(
+                        //   onPressed: _testServerConnection,
+                        //   icon: Icon(Icons.network_check),
+                        //   label: Text('Test'),
+                        //   style: ElevatedButton.styleFrom(
+                        //     backgroundColor: Colors.blue,
+                        //     foregroundColor: Colors.white,
+                        //   ),
+                        // ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPrintControls() {
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Direct Print Controls',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: _textController,
+              decoration: InputDecoration(
+                labelText: 'Text to Print',
+                border: OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: Icon(Icons.print),
+                  onPressed: _printText,
+                ),
+              ),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: _qrController,
+              decoration: InputDecoration(
+                labelText: 'QR Code Data',
+                border: OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: Icon(Icons.qr_code),
+                  onPressed: _printQRCode,
+                ),
+              ),
+            ),
+            SizedBox(height: 12),
+            TextField(
+              controller: _barcodeController,
+              decoration: InputDecoration(
+                labelText: 'Barcode Data',
+                border: OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: Icon(Icons.qr_code_scanner),
+                  onPressed: _printBarcode,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

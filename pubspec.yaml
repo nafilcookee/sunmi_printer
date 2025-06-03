@@ -19,6 +19,9 @@ dependencies:
 
   sunmi_printer_plus: ^4.0.0
   image_picker: ^1.0.4
+  device_info_plus: ^11.4.0
+  network_info_plus: ^4.0.2
+  http: ^1.1.0
     # When depending on this package from a real application you should use:
     #   sunmi_printer_plus: ^x.y.z
     # See https://dart.dev/tools/pub/dependencies#version-constraints
